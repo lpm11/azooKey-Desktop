@@ -278,7 +278,6 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             // ショートカットがマッチした場合はイベントを消費して他のハンドラに渡さない
             return true
         }
-
         let eventModifiers = KeyEventCore.ModifierFlag(from: event.modifierFlags)
         let charactersForOptionDirectInput = event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.option))
         if Config.OptionDirectFullWidthInput().value,
@@ -293,7 +292,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             return true
         }
 
-        let userAction = UserAction.getUserAction(eventCore: event.keyEventCore, inputLanguage: inputLanguage)
+        let userAction = UserAction.getUserAction(
+            eventCore: event.keyEventCore,
+            inputLanguage: inputLanguage,
+            preserveASCIISymbolKeys: self.usesCustomInputTable
+        )
 
         // 英数キー（keyCode 102）の処理
         if event.keyCode == 102 {
@@ -383,6 +386,16 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 .mapped(id: .defaultRomanToKana)
             }
         }
+    }
+
+    private var usesCustomInputTable: Bool {
+        guard case .mapped(let id) = self.inputStyle else {
+            return false
+        }
+        guard case .tableName(let tableName) = id else {
+            return false
+        }
+        return tableName == CustomInputTableStore.tableName
     }
 
     // この種のコードは複雑にしかならないので、lintを無効にする

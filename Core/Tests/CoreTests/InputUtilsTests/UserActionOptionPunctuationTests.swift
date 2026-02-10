@@ -23,63 +23,106 @@ private func makeEvent(
     )
 }
 
-@Test func testOptionPunctuationMappings() async throws {
-    let defaults = UserDefaults.standard
-    let key = Config.PunctuationStyle.key
-    let originalData = defaults.data(forKey: key)
-    defer {
-        if let data = originalData {
-            defaults.set(data, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
+@Suite(.serialized) struct UserActionOptionPunctuationTests {
+    @Test func testOptionPunctuationMappings() async throws {
+        let defaults = UserDefaults.standard
+        let key = Config.PunctuationStyle.key
+        let originalData = defaults.data(forKey: key)
+        defer {
+            if let data = originalData {
+                defaults.set(data, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
         }
+
+        let option: KeyEventCore.ModifierFlag = [.option]
+        let shiftOption: KeyEventCore.ModifierFlag = [.shift, .option]
+
+        Config.PunctuationStyle().value = .kutenAndToten
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ",", characters: "≤", modifiers: option),
+            inputLanguage: .japanese
+        )) == "，")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ".", characters: "≥", modifiers: option),
+            inputLanguage: .japanese
+        )) == "．")
+
+        Config.PunctuationStyle().value = .periodAndComma
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ",", characters: "≤", modifiers: option),
+            inputLanguage: .japanese
+        )) == "、")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ".", characters: "≥", modifiers: option),
+            inputLanguage: .japanese
+        )) == "。")
+
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: "[", characters: "[", modifiers: option),
+            inputLanguage: .japanese
+        )) == "［")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: "[", characters: "{", modifiers: shiftOption),
+            inputLanguage: .japanese
+        )) == "｛")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: "]", characters: "]", modifiers: option),
+            inputLanguage: .japanese
+        )) == "］")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: "]", characters: "}", modifiers: shiftOption),
+            inputLanguage: .japanese
+        )) == "｝")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ",", characters: "¯", modifiers: shiftOption),
+            inputLanguage: .japanese
+        )) == "¯")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ".", characters: "˘", modifiers: shiftOption),
+            inputLanguage: .japanese
+        )) == "˘")
     }
 
-    let option: KeyEventCore.ModifierFlag = [.option]
-    let shiftOption: KeyEventCore.ModifierFlag = [.shift, .option]
+    @Test func testPreserveASCIISymbolKeysForCustomTable() async throws {
+        let defaults = UserDefaults.standard
+        let key = Config.PunctuationStyle.key
+        let originalData = defaults.data(forKey: key)
+        defer {
+            if let data = originalData {
+                defaults.set(data, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
 
-    Config.PunctuationStyle().value = .kutenAndToten
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: ",", characters: "≤", modifiers: option),
-        inputLanguage: .japanese
-    )) == "，")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: ".", characters: "≥", modifiers: option),
-        inputLanguage: .japanese
-    )) == "．")
+        Config.PunctuationStyle().value = .kutenAndToten
 
-    Config.PunctuationStyle().value = .periodAndComma
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: ",", characters: "≤", modifiers: option),
-        inputLanguage: .japanese
-    )) == "、")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: ".", characters: "≥", modifiers: option),
-        inputLanguage: .japanese
-    )) == "。")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ".", characters: ".", modifiers: []),
+            inputLanguage: .japanese
+        )) == "。")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ".", characters: ".", modifiers: []),
+            inputLanguage: .japanese,
+            preserveASCIISymbolKeys: true
+        )) == ".")
 
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: "[", characters: "[", modifiers: option),
-        inputLanguage: .japanese
-    )) == "［")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: "[", characters: "{", modifiers: shiftOption),
-        inputLanguage: .japanese
-    )) == "｛")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: "]", characters: "]", modifiers: option),
-        inputLanguage: .japanese
-    )) == "］")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: "]", characters: "}", modifiers: shiftOption),
-        inputLanguage: .japanese
-    )) == "｝")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: ",", characters: "¯", modifiers: shiftOption),
-        inputLanguage: .japanese
-    )) == "¯")
-    #expect(inputString(from: UserAction.getUserAction(
-        eventCore: makeEvent(logicalKey: ".", characters: "˘", modifiers: shiftOption),
-        inputLanguage: .japanese
-    )) == "˘")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ",", characters: ",", modifiers: []),
+            inputLanguage: .japanese,
+            preserveASCIISymbolKeys: true
+        )) == ",")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: ";", characters: ";", modifiers: []),
+            inputLanguage: .japanese,
+            preserveASCIISymbolKeys: true
+        )) == ";")
+        #expect(inputString(from: UserAction.getUserAction(
+            eventCore: makeEvent(logicalKey: "\"", characters: "\"", modifiers: []),
+            inputLanguage: .japanese,
+            preserveASCIISymbolKeys: true
+        )) == "\"")
+    }
 }

@@ -105,9 +105,27 @@ public enum UserAction {
         }
     }
 
+    private static func shouldBypassIntentionMapping(
+        for character: Character,
+        preserveASCIISymbolKeys: Bool
+    ) -> Bool {
+        guard preserveASCIISymbolKeys else {
+            return false
+        }
+        guard character.unicodeScalars.count == 1, let scalar = character.unicodeScalars.first, scalar.isASCII else {
+            return false
+        }
+        let asciiSymbolSet = CharacterSet.punctuationCharacters.union(.symbols)
+        return asciiSymbolSet.contains(scalar)
+    }
+
     // この種のコードは複雑にしかならないので、lintを無効にする
     // swiftlint:disable:next cyclomatic_complexity
-    public static func getUserAction(eventCore: KeyEventCore, inputLanguage: InputLanguage) -> UserAction {
+    public static func getUserAction(
+        eventCore: KeyEventCore,
+        inputLanguage: InputLanguage,
+        preserveASCIISymbolKeys: Bool = false
+    ) -> UserAction {
         // see: https://developer.mozilla.org/ja/docs/Web/API/UI_Events/Keyboard_event_code_values#mac_%E3%81%A7%E3%81%AE%E3%82%B3%E3%83%BC%E3%83%89%E5%80%A4
         func keyMap(_ string: String, invertPunctuation: Bool = false) -> [InputPiece] {
             switch inputLanguage {
@@ -115,7 +133,15 @@ public enum UserAction {
                 return string.map { .character($0) }
             case .japanese:
                 return string.map {
-                    .key(intention: intention($0, invertPunctuation: invertPunctuation), input: $0, modifiers: [])
+                    let mappedIntention: Character? = if shouldBypassIntentionMapping(
+                        for: $0,
+                        preserveASCIISymbolKeys: preserveASCIISymbolKeys && !invertPunctuation
+                    ) {
+                        nil
+                    } else {
+                        intention($0, invertPunctuation: invertPunctuation)
+                    }
+                    return .key(intention: mappedIntention, input: $0, modifiers: [])
                 }
             }
         }
