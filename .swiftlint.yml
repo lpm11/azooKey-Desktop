@@ -39,3 +39,4 @@ included:
 
 excluded:
   - Core/.build
+  - Core/.swiftpm
