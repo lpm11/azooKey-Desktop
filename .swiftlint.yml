@@ -36,3 +36,7 @@ opt_in_rules:
 included:
   - azooKeyMac
   - Core
+
+excluded:
+  - Core/.build
+  - Core/.swiftpm
