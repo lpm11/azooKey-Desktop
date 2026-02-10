@@ -58,7 +58,7 @@ rm ${EXPORT_PATH}/ExportOptions.plist
 
 # Create a temporary package
 pkgbuild --root ${EXPORT_PATH} \
-         --component-plist pkg.plist --identifier dev.ensan.inputmethod.azooKeyMac \
+         --component-plist pkg.plist --identifier dev.lpm11.inputmethod.azooKeyMac \
          --version 0 \
          --install-location /Library/Input\ Methods \
          azooKey-tmp.pkg
