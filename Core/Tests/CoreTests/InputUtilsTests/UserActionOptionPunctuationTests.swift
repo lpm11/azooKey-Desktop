@@ -83,3 +83,44 @@ private func makeEvent(
         inputLanguage: .japanese
     )) == "˘")
 }
+
+@Test func testPreserveASCIISymbolKeysForCustomTable() async throws {
+    let defaults = UserDefaults.standard
+    let key = Config.PunctuationStyle.key
+    let originalData = defaults.data(forKey: key)
+    defer {
+        if let data = originalData {
+            defaults.set(data, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    Config.PunctuationStyle().value = .kutenAndToten
+
+    #expect(inputString(from: UserAction.getUserAction(
+        eventCore: makeEvent(logicalKey: ".", characters: ".", modifiers: []),
+        inputLanguage: .japanese
+    )) == "。")
+    #expect(inputString(from: UserAction.getUserAction(
+        eventCore: makeEvent(logicalKey: ".", characters: ".", modifiers: []),
+        inputLanguage: .japanese,
+        preserveASCIISymbolKeys: true
+    )) == ".")
+
+    #expect(inputString(from: UserAction.getUserAction(
+        eventCore: makeEvent(logicalKey: ",", characters: ",", modifiers: []),
+        inputLanguage: .japanese,
+        preserveASCIISymbolKeys: true
+    )) == ",")
+    #expect(inputString(from: UserAction.getUserAction(
+        eventCore: makeEvent(logicalKey: ";", characters: ";", modifiers: []),
+        inputLanguage: .japanese,
+        preserveASCIISymbolKeys: true
+    )) == ";")
+    #expect(inputString(from: UserAction.getUserAction(
+        eventCore: makeEvent(logicalKey: "\"", characters: "\"", modifiers: []),
+        inputLanguage: .japanese,
+        preserveASCIISymbolKeys: true
+    )) == "\"")
+}
