@@ -70,6 +70,7 @@
 - `handleClientAction(...)` の最後で常に `refreshPredictionWindow()` を呼ぶ。
 - `inputState == .composing` のときだけ表示対象。その他状態では非表示。
 - 候補が空でも、直前の候補を最大1秒キャッシュ表示するフェード的挙動あり。
+- `up/down` で予測候補選択を開始した後は、タイムアウトによる自動クローズを行わない。
 - ライブ変換OFFかつ通常候補ウィンドウ表示中は、予測ウィンドウを候補ウィンドウ右側へ配置。
 
 参照:
@@ -90,10 +91,11 @@ UI補足:
 - `azooKeyMac/InputController/CandidateWindow/CandidateView.swift:84`
 - `azooKeyMac/InputController/CandidateWindow/CandidateView.swift:89`
 
-### 1-5. 受け入れ操作（Tab）
+### 1-5. 候補選択・受け入れ操作
+- `composing` かつ PredictionWindow 表示中では、`up/down` で予測候補を循環選択できる。
 - `composing` 状態で `Tab` は `.acceptPredictionCandidate`。
 - 実処理は `acceptPredictionCandidate()`:
-  - 予測1件目を取得
+  - 予測候補を取得し、選択中があればその候補、未選択なら先頭候補を採用
   - 入力末尾がASCII英字ならその1文字を削除
   - `appendText` を `.direct` でカーソル位置に挿入
 

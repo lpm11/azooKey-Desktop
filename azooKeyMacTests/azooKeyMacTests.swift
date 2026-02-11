@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import Core
 @testable import azooKeyMac
 
 class azooKeyMacTests: XCTestCase {
@@ -19,15 +20,51 @@ class azooKeyMacTests: XCTestCase {
     }
 
     func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertEqual(
+            azooKeyMacInputController.predictionSelectionIndex(
+                current: nil,
+                direction: .down,
+                candidateCount: 3
+            ),
+            0
+        )
+        XCTAssertEqual(
+            azooKeyMacInputController.predictionSelectionIndex(
+                current: nil,
+                direction: .up,
+                candidateCount: 3
+            ),
+            2
+        )
     }
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
+    func testPredictionSelectionIndexWrapsAround() throws {
+        XCTAssertEqual(
+            azooKeyMacInputController.predictionSelectionIndex(
+                current: 2,
+                direction: .down,
+                candidateCount: 3
+            ),
+            0
+        )
+        XCTAssertEqual(
+            azooKeyMacInputController.predictionSelectionIndex(
+                current: 0,
+                direction: .up,
+                candidateCount: 3
+            ),
+            2
+        )
+    }
+
+    func testPredictionSelectionIndexWithNoCandidatesReturnsNil() throws {
+        XCTAssertNil(
+            azooKeyMacInputController.predictionSelectionIndex(
+                current: 1,
+                direction: .down,
+                candidateCount: 0
+            )
+        )
     }
 
 }
