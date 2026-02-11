@@ -29,7 +29,12 @@
 - `azooKeyMac/Windows/ConfigWindow.swift:515`
 
 ### 1-2. 候補生成パイプライン
-- 候補更新時に `kanaKanjiConverter.requestCandidates(...)` を呼ぶ際、予測モードを切り替え。
+- Prediction Window の元データは `SegmentsManager.updateRawCandidate()` で毎回更新される `rawCandidates`。
+- ここで `kanaKanjiConverter.requestCandidates(...)` を呼び、`ConversionResult.predictionResults` を受け取る。
+- `requestCandidates` に渡している主入力は次の3つ。
+  - `prefixComposingText`: 現在の変換対象（カーソル位置まで）
+  - `leftSideContext`: 左文脈（最大30文字）
+  - `options`: 予測有効/無効を含む変換オプション
 - `DebugPredictiveTyping == true` のときだけ、
   - `requireJapanesePrediction: .manualMix`
   - `requireEnglishPrediction: .manualMix`
@@ -56,6 +61,11 @@
 
 補足:
 - 順序は `rawCandidates.predictionResults` の先頭順を維持する。
+- `appendText` は「いまの入力に追加で挿入する分」だけを持つ。
+  例: 入力 `こんに` / 候補読み `こんにちは` のとき `appendText = "ちは"`。
+- `displayText` は候補の表示文字列（`candidate.text`）で、挿入処理は `appendText` を使う。
+- `Tab` 受け入れ時は `appendText` を `.direct` で挿入するだけで、AI再問い合わせは発生しない。
+- つまり Prediction Window は「候補生成」と「受け入れ」の両方がローカル処理で完結する。
 
 参照:
 - `Core/Sources/Core/InputUtils/SegmentsManager.swift:47`
@@ -65,6 +75,44 @@
 - `Core/Sources/Core/InputUtils/SegmentsManager.swift:604`
 - `Core/Sources/Core/InputUtils/SegmentsManager.swift:613`
 - `Core/Sources/Core/InputUtils/SegmentsManager.swift:629`
+
+### 1-3-1. KanaKanjiConverter内部で何をしているか
+`Prediction Window` に供給される `rawCandidates.predictionResults` は、`KanaKanjiConverter.requestCandidates(...)` の内部で次のように作られる。
+
+1. `requestCandidates(inputData, options)` が入口
+   - 空入力なら空結果を返す
+   - 学習メモリ/辞書状態を更新
+   - `convertToLattice(...)` でラティス計算
+   - `processResult(...)` で `ConversionResult` へ整形
+
+2. `processResult(...)` 内で予測候補を生成
+   - 通常候補（全文候補）を作る
+   - その中のベストな `CandidateData` を予測用起点として選ぶ
+   - `getPredictionCandidate(...)` を呼んで予測候補列を作る
+   - 重複除去して上位3件に絞る
+   - `requireJapanesePrediction == .manualMix` のため `mainResults` には混ぜず `predictionResults` に分離
+
+3. `getPredictionCandidate(...)` / `Kana2Kanji.getPredictionCandidates(...)` の中身
+   - 末尾文節の読み（`lastRuby`）を取り出し、予測辞書（LOUDS）と動的ユーザ辞書をprefix一致で検索
+   - 候補スコアを
+     `lastCandidate.value + mmValue + ccValue + wValue + lengthPenalty - ignoreCCValue`
+     で計算し、上位N件を維持
+   - ここで
+     - `mmValue`: 意味連接（前後の語のつながり）
+     - `ccValue`: 品詞連接
+     - `wValue`: 語そのものの重み
+     - `lengthPenalty`: 読み長差のペナルティ
+
+要点:
+- 生成方式は「辞書 + 連接スコア + 学習辞書」ベース。
+
+参照:
+- `Core/.build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/ConvertRequestOptions.swift:12`
+- `Core/.build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift:323`
+- `Core/.build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift:508`
+- `Core/.build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift:575`
+- `Core/.build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift:816`
+- `Core/.build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Prediction.swift:24`
 
 ### 1-4. 表示とウィンドウ挙動
 - `handleClientAction(...)` の最後で常に `refreshPredictionWindow()` を呼ぶ。
@@ -150,6 +198,11 @@ UI補足:
    - OpenAI API
 5. 返却文字列配列を `Candidate[]` に変換し、置換候補ウィンドウを表示
 
+補足（Prediction Windowとの違い）:
+- **生成モデル入力あり**。
+- モデルへ渡す実入力は概ね `left context (max 100)` + `target(convertTarget)`。
+- `requestPredictiveSuggestion`（未入力時の `Ctrl-S`）は、内部的に `target = "つづき"` を挿入してこの経路に流す。
+
 参照:
 - `azooKeyMac/InputController/azooKeyMacInputController.swift:793`
 - `azooKeyMac/InputController/azooKeyMacInputController.swift:802`
@@ -191,11 +244,13 @@ UI補足:
 - **Prediction Window（変換エンジン）**
   - 条件: `DebugPredictiveTyping == true` かつ `composing`
   - 受け入れ: `Tab`
+  - 生成モデル入力: **なし**（`KanaKanjiConverter.predictionResults` 由来）
   - 特徴: 低レイテンシ・ローカル変換候補依存
 
 - **Replace Suggestion（AI提案）**
   - 条件: `AIBackendPreference != off`
   - 起点: `Ctrl-S`（またはメニュー「いい感じ変換」）
+  - 生成モデル入力: **あり**（`prompt + target` を API/モデルに送信）
   - 特徴: 文脈ベースの生成候補、ネットワーク/モデル可用性に依存
 
 ---
