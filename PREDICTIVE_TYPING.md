@@ -41,7 +41,7 @@
 - `Core/Sources/Core/InputUtils/SegmentsManager.swift:392`
 
 ### 1-3. `requestPredictionCandidates()` のロジック
-`SegmentsManager.requestPredictionCandidates()` は次の条件で1件だけ返します。
+`SegmentsManager.requestPredictionCandidates()` は次の条件で最大3件返します。
 
 1. `DebugPredictiveTyping` がONであること
 2. `convertTarget` が空でないこと
@@ -51,10 +51,11 @@
    - 候補読み（`candidate.data[].ruby` 連結）をひらがな化
    - それが入力側プレフィックスと前方一致
    - かつ候補のほうが長い
-6. 一致した最初の候補について、差分だけ `appendText` として返す
+6. 一致した候補について、差分だけ `appendText` を生成
+7. 先頭から最大3件で打ち切る
 
 補足:
-- 戻り値は `[PredictionCandidate]` ですが、現実装は最初の一致で `return` するため実質1件。
+- 順序は `rawCandidates.predictionResults` の先頭順を維持する。
 
 参照:
 - `Core/Sources/Core/InputUtils/SegmentsManager.swift:47`
@@ -83,7 +84,7 @@
 
 UI補足:
 - 予測候補ビューは先頭に矢印アイコンを付ける専用描画。
-- 可視行数は最大3行（ただし候補供給は現在実質1件）。
+- 可視行数は最大3行（候補供給も最大3件）。
 
 参照:
 - `azooKeyMac/InputController/CandidateWindow/CandidateView.swift:84`
@@ -200,7 +201,5 @@ UI補足:
 ## 4. 現状の制約・観察ポイント
 
 - Prediction Windowは「開発中トグル」前提で、通常設定では無効。
-- `requestPredictionCandidates()` は実装上1件返し（複数表示設計とのギャップ）。
 - `つづき` プロンプトの候補数要求（2-5）と共通要求（3-5）が不整合。
 - 命名上 `requestPredictiveSuggestion` が AI置換提案導線を含むため、Prediction Window 機能と混同しやすい。
-

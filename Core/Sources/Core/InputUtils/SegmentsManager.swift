@@ -67,7 +67,7 @@ public final class SegmentsManager {
         public var appendText: String
     }
 
-    private func candidateReading(_ candidate: Candidate) -> String {
+    private static func candidateReading(_ candidate: Candidate) -> String {
         candidate.data.map(\.ruby).joined()
     }
 
@@ -79,6 +79,53 @@ public final class SegmentsManager {
             }
             return .init(candidate: candidates[index])
         }
+    }
+
+    static func predictionCandidates(
+        target: String,
+        from predictionResults: [Candidate],
+        limit: Int = 3
+    ) -> [PredictionCandidate] {
+        guard !target.isEmpty else {
+            return []
+        }
+
+        var matchTarget = target
+        if let last = matchTarget.last,
+           last.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.letters.contains($0) }) {
+            matchTarget.removeLast()
+        }
+        guard matchTarget.count >= 2 else {
+            return []
+        }
+        matchTarget = matchTarget.toHiragana()
+
+        var matches: [PredictionCandidate] = []
+        matches.reserveCapacity(limit)
+
+        for candidate in predictionResults {
+            let reading = Self.candidateReading(candidate)
+            guard !reading.isEmpty else {
+                continue
+            }
+            let readingHiragana = reading.toHiragana()
+            guard readingHiragana.hasPrefix(matchTarget) else {
+                continue
+            }
+            guard matchTarget.count < readingHiragana.count else {
+                continue
+            }
+            let appendText = String(readingHiragana.dropFirst(matchTarget.count))
+            guard !appendText.isEmpty else {
+                continue
+            }
+            matches.append(.init(displayText: candidate.text, appendText: appendText))
+            if matches.count == limit {
+                break
+            }
+        }
+
+        return matches
     }
 
     private lazy var zenzaiPersonalizationMode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode? = self.getZenzaiPersonalizationMode()
@@ -733,45 +780,14 @@ public final class SegmentsManager {
             return []
         }
 
-        let target = self.composingText.convertTarget
-        guard !target.isEmpty else {
-            return []
-        }
-
-        var matchTarget = target
-        if let last = matchTarget.last,
-           last.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.letters.contains($0) }) {
-            matchTarget.removeLast()
-        }
-        guard matchTarget.count >= 2 else {
-            return []
-        }
-        matchTarget = matchTarget.toHiragana()
-
         guard let rawCandidates else {
             return []
         }
 
-        for candidate in rawCandidates.predictionResults {
-            let reading = candidateReading(candidate)
-            guard !reading.isEmpty else {
-                continue
-            }
-            let readingHiragana = reading.toHiragana()
-            guard readingHiragana.hasPrefix(matchTarget) else {
-                continue
-            }
-            guard matchTarget.count < readingHiragana.count else {
-                continue
-            }
-            let appendText = String(readingHiragana.dropFirst(matchTarget.count))
-            guard !appendText.isEmpty else {
-                continue
-            }
-            return [.init(displayText: candidate.text, appendText: appendText)]
-        }
-
-        return []
+        return Self.predictionCandidates(
+            target: self.composingText.convertTarget,
+            from: rawCandidates.predictionResults
+        )
     }
 
     // swiftlint:disable:next cyclomatic_complexity
