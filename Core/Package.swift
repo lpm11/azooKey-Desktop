@@ -27,6 +27,9 @@ let package = Package(
         .executableTarget(
             name: "git-info-generator"
         ),
+        .executableTarget(
+            name: "learning-memory-inspector"
+        ),
         .plugin(
             name: "GitInfoPlugin",
             capability: .buildTool(),
