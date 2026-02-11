@@ -21,7 +21,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     private var predictionWindow: NSWindow
     private var predictionViewController: PredictionCandidatesViewController
-    private var lastPredictionCandidates: [String] = []
+    private var lastPredictionCandidates: [SegmentsManager.PredictionCandidate] = []
+    private var predictionSelectionIndex: Int?
     private var lastPredictionUpdateTime: TimeInterval = 0
     private var predictionHideWorkItem: DispatchWorkItem?
 
@@ -100,6 +101,32 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
 
         return nil
+    }
+
+    static func predictionSelectionIndex(
+        current: Int?,
+        direction: UserAction.NavigationDirection,
+        candidateCount: Int
+    ) -> Int? {
+        guard candidateCount > 0 else {
+            return nil
+        }
+        switch direction {
+        case .down:
+            if let current {
+                return (current + 1) % candidateCount
+            } else {
+                return 0
+            }
+        case .up:
+            if let current {
+                return (current - 1 + candidateCount) % candidateCount
+            } else {
+                return candidateCount - 1
+            }
+        case .left, .right:
+            return current
+        }
     }
 
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
@@ -298,6 +325,10 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             preserveASCIISymbolKeys: self.usesCustomInputTable
         )
 
+        if self.handlePredictionCandidateSelectionIfNeeded(userAction) {
+            return true
+        }
+
         // 英数キー（keyCode 102）の処理
         if event.keyCode == 102 {
             let isDoubleTap = checkAndUpdateDoubleTap(keyCode: 102)
@@ -367,6 +398,37 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             enableSuggestion: aiBackendEnabled
         )
         return handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
+    }
+
+    @MainActor
+    private func handlePredictionCandidateSelectionIfNeeded(_ userAction: UserAction) -> Bool {
+        guard self.inputState == .composing else {
+            return false
+        }
+        guard self.predictionWindow.isVisible else {
+            return false
+        }
+        guard case .navigation(let direction) = userAction else {
+            return false
+        }
+        guard direction == .up || direction == .down else {
+            return false
+        }
+        guard !self.lastPredictionCandidates.isEmpty else {
+            return false
+        }
+        guard let nextIndex = Self.predictionSelectionIndex(
+            current: self.predictionSelectionIndex,
+            direction: direction,
+            candidateCount: self.lastPredictionCandidates.count
+        ) else {
+            return false
+        }
+        self.predictionSelectionIndex = nextIndex
+        self.predictionHideWorkItem?.cancel()
+        self.predictionHideWorkItem = nil
+        self.refreshPredictionWindow()
+        return true
     }
 
     private var inputStyle: InputStyle {
@@ -621,11 +683,20 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
         let predictions = self.requestPreferredPredictionCandidates()
         if predictions.isEmpty {
-            let now = Date().timeIntervalSince1970
-            let elapsed = now - self.lastPredictionUpdateTime
-            if elapsed < 1.0, !self.lastPredictionCandidates.isEmpty {
+            if !self.lastPredictionCandidates.isEmpty {
                 self.showCachedPredictionWindow()
-                self.schedulePredictionHide(after: max(0, 1.0 - elapsed))
+                if self.predictionSelectionIndex == nil {
+                    let now = Date().timeIntervalSince1970
+                    let elapsed = now - self.lastPredictionUpdateTime
+                    if elapsed < 1.0 {
+                        self.schedulePredictionHide(after: max(0, 1.0 - elapsed))
+                    } else {
+                        self.hidePredictionWindow()
+                    }
+                } else {
+                    self.predictionHideWorkItem?.cancel()
+                    self.predictionHideWorkItem = nil
+                }
                 return
             }
             self.hidePredictionWindow()
@@ -633,6 +704,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
 
         self.predictionHideWorkItem?.cancel()
+        self.predictionHideWorkItem = nil
+        self.lastPredictionCandidates = predictions
+        self.lastPredictionUpdateTime = Date().timeIntervalSince1970
+
+        let selectionIndex = self.normalizedPredictionSelectionIndex(candidateCount: predictions.count)
         let candidates = predictions.map { prediction in
             Candidate(
                 text: prediction.displayText,
@@ -643,14 +719,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             )
         }
 
-        self.lastPredictionCandidates = candidates.map(\.text)
-        self.lastPredictionUpdateTime = Date().timeIntervalSince1970
-
         var rect: NSRect = .zero
         self.client().attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
         self.predictionViewController.updateCandidatePresentations(
             candidates.map { .init(candidate: $0) },
-            selectionIndex: nil,
+            selectionIndex: selectionIndex,
             cursorLocation: rect.origin
         )
 
@@ -685,11 +758,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     }
 
     private func showCachedPredictionWindow() {
-        let candidates = self.lastPredictionCandidates.map { text in
+        let selectionIndex = self.normalizedPredictionSelectionIndex(candidateCount: self.lastPredictionCandidates.count)
+        let candidates = self.lastPredictionCandidates.map { prediction in
             Candidate(
-                text: text,
+                text: prediction.displayText,
                 value: 0,
-                composingCount: .surfaceCount(text.count),
+                composingCount: .surfaceCount(prediction.displayText.count),
                 lastMid: 0,
                 data: []
             )
@@ -701,16 +775,32 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.client().attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
         self.predictionViewController.updateCandidatePresentations(
             candidates.map { .init(candidate: $0) },
-            selectionIndex: nil,
+            selectionIndex: selectionIndex,
             cursorLocation: rect.origin
         )
         self.predictionWindow.orderFront(nil)
+    }
+
+    private func normalizedPredictionSelectionIndex(candidateCount: Int) -> Int? {
+        guard candidateCount > 0 else {
+            self.predictionSelectionIndex = nil
+            return nil
+        }
+        guard let predictionSelectionIndex else {
+            return nil
+        }
+        let normalized = max(0, min(predictionSelectionIndex, candidateCount - 1))
+        self.predictionSelectionIndex = normalized
+        return normalized
     }
 
     private func schedulePredictionHide(after delay: TimeInterval) {
         self.predictionHideWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else {
+                return
+            }
+            guard self.predictionSelectionIndex == nil else {
                 return
             }
             let now = Date().timeIntervalSince1970
@@ -726,6 +816,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.predictionWindow.setIsVisible(false)
         self.predictionWindow.orderOut(nil)
         self.lastPredictionCandidates = []
+        self.predictionSelectionIndex = nil
         self.lastPredictionUpdateTime = 0
         self.predictionHideWorkItem?.cancel()
         self.predictionHideWorkItem = nil
@@ -733,13 +824,28 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     @MainActor
     private func acceptPredictionCandidate() {
-        let predictions = self.requestPreferredPredictionCandidates()
-        guard let prediction = predictions.first else {
+        let predictionCandidates = self.requestPreferredPredictionCandidates()
+        let predictions: [SegmentsManager.PredictionCandidate]
+        if predictionCandidates.isEmpty {
+            predictions = self.lastPredictionCandidates
+        } else {
+            predictions = predictionCandidates
+            self.lastPredictionCandidates = predictionCandidates
+            self.lastPredictionUpdateTime = Date().timeIntervalSince1970
+        }
+        guard !predictions.isEmpty else {
             return
         }
+        let selectedIndex = self.normalizedPredictionSelectionIndex(candidateCount: predictions.count) ?? 0
+        let prediction = predictions[selectedIndex]
+        self.predictionSelectionIndex = nil
+
         let deleteCount = prediction.deleteCount
         if deleteCount > 0 {
             self.segmentsManager.deleteBackwardFromCursorPosition(count: deleteCount)
+        } else if let last = self.segmentsManager.convertTarget.last,
+                  last.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.letters.contains($0) }) {
+            self.segmentsManager.deleteBackwardFromCursorPosition(count: 1)
         }
         let appendText = prediction.appendText
 
