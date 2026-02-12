@@ -124,7 +124,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             } else {
                 return candidateCount - 1
             }
-        case .left, .right:
+        case .left, .right, .pageUp, .pageDown, .home, .end:
             return current
         }
     }
@@ -511,6 +511,16 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.segmentsManager.requestSelectingPrevCandidate()
         case .selectNextCandidate:
             self.segmentsManager.requestSelectingNextCandidate()
+        case .selectPrevCandidatePage:
+            self.candidatesViewController.requestAlignSelectionToPageBoundary()
+            self.segmentsManager.requestSelectingPrevCandidatePage(pageSize: max(1, self.candidatesViewController.numberOfVisibleRows))
+        case .selectNextCandidatePage:
+            self.candidatesViewController.requestAlignSelectionToPageBoundary()
+            self.segmentsManager.requestSelectingNextCandidatePage(pageSize: max(1, self.candidatesViewController.numberOfVisibleRows))
+        case .selectFirstCandidate:
+            self.segmentsManager.requestSelectingFirstCandidate()
+        case .selectLastCandidate:
+            self.segmentsManager.requestSelectingLastCandidate()
         case .selectNumberCandidate(let num):
             self.segmentsManager.requestSelectingRow(self.candidatesViewController.getNumberCandidate(num: num))
             self.submitSelectedCandidate()
