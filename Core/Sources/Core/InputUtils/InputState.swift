@@ -88,6 +88,8 @@ public enum InputState: Sendable, Hashable {
                 }
             case .startUnicodeInput:
                 return (.enterUnicodeInputMode, .transition(.unicodeInput("")))
+            case .reconvertCommittedText:
+                return (.reconvertCommittedText, .fallthrough)
             case .unknown, .navigation, .backspace, .enter, .escape, .function, .editSegment, .tab, .forget, .transformSelectedText:
                 return (.fallthrough, .fallthrough)
             }
@@ -116,7 +118,7 @@ public enum InputState: Sendable, Hashable {
                 return (.insertWithoutMarkedText(diacritic + "\t"), .transition(.none))
             case .startUnicodeInput:
                 return (.insertWithoutMarkedText(diacritic), .transition(.unicodeInput("")))
-            case .unknown, .space, .英数, .navigation, .editSegment, .suggest, .forget, .transformSelectedText:
+            case .unknown, .space, .英数, .navigation, .editSegment, .suggest, .forget, .transformSelectedText, .reconvertCommittedText:
                 return (.insertWithoutMarkedText(diacritic), .transition(.none))
             }
         case .composing:
@@ -191,6 +193,8 @@ public enum InputState: Sendable, Hashable {
                 }
             case .startUnicodeInput:
                 return (.commitMarkedText, .transition(.unicodeInput("")))
+            case .reconvertCommittedText:
+                return (.reconvertCommittedText, .fallthrough)
             case .unknown, .transformSelectedText, .deadKey:
                 return (.fallthrough, .fallthrough)
             }
@@ -246,6 +250,8 @@ public enum InputState: Sendable, Hashable {
                 return (.editSegment(count), .transition(.selecting))
             case .startUnicodeInput:
                 return (.commitMarkedText, .transition(.unicodeInput("")))
+            case .reconvertCommittedText:
+                return (.reconvertCommittedText, .fallthrough)
             case .unknown, .suggest, .transformSelectedText, .deadKey:
                 return (.fallthrough, .fallthrough)
             }
@@ -339,6 +345,8 @@ public enum InputState: Sendable, Hashable {
                 return (.consume, .fallthrough)
             case .startUnicodeInput:
                 return (.submitSelectedCandidateAndEnterUnicodeInputMode, .transition(.unicodeInput("")))
+            case .reconvertCommittedText:
+                return (.reconvertCommittedText, .fallthrough)
             case .unknown, .suggest, .transformSelectedText, .deadKey:
                 return (.fallthrough, .fallthrough)
             }
@@ -371,6 +379,8 @@ public enum InputState: Sendable, Hashable {
                 return (.consume, .fallthrough)
             case .startUnicodeInput:
                 return (.hideReplaceSuggestionWindow, .transition(.unicodeInput("")))
+            case .reconvertCommittedText:
+                return (.reconvertCommittedText, .fallthrough)
             case .unknown, .function, .number, .editSegment, .transformSelectedText, .deadKey:
                 return (.fallthrough, .fallthrough)
             }
@@ -404,7 +414,7 @@ public enum InputState: Sendable, Hashable {
                 }
             case .escape:
                 return (.cancelUnicodeInput, .transition(.none))
-            case .英数, .かな, .tab, .forget, .function, .navigation, .editSegment, .suggest, .transformSelectedText, .deadKey, .startUnicodeInput, .unknown:
+            case .英数, .かな, .tab, .forget, .function, .navigation, .editSegment, .suggest, .transformSelectedText, .deadKey, .startUnicodeInput, .unknown, .reconvertCommittedText:
                 return (.consume, .fallthrough)
             }
         }

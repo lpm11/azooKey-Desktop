@@ -34,6 +34,16 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     // ダブルタップ検出用
     private var lastKey: (time: TimeInterval, code: UInt16) = (0, 0)
+    private struct LastCommittedEntry {
+        let text: String
+        let reading: String
+    }
+    private var lastCommittedEntry: LastCommittedEntry?
+    private var markedTextReplacementRange: NSRange?
+    private static let reconvertReadingLocale: CFLocale = {
+        let identifier = CFLocaleCreateCanonicalLanguageIdentifierFromString(kCFAllocatorDefault, "ja" as CFString)
+        return CFLocaleCreate(kCFAllocatorDefault, identifier)
+    }()
     private static let doubleTapInterval: TimeInterval = 0.5
     private static let candidateWindowInitialSize = CGSize(width: 400, height: 1000)
 
@@ -57,6 +67,175 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         let isDouble = (self.lastKey.code == keyCode) && (now - self.lastKey.time < Self.doubleTapInterval)
         self.lastKey = (time: now, code: keyCode)
         return isDouble
+    }
+
+    private func reading(from candidate: Candidate) -> String {
+        candidate.data.map(\.ruby).joined()
+    }
+
+    private static func estimatedHiraganaReadingForNonASCII(_ text: String) -> String {
+        guard !text.isEmpty else {
+            return text
+        }
+
+        let nsText = text as NSString
+        let options = kCFStringTokenizerUnitWordBoundary | kCFStringTokenizerAttributeLatinTranscription
+        let tokenizer = CFStringTokenizerCreate(
+            kCFAllocatorDefault,
+            text as CFString,
+            CFRangeMake(0, nsText.length),
+            options,
+            Self.reconvertReadingLocale
+        )
+
+        var tokenType = CFStringTokenizerGoToTokenAtIndex(tokenizer, 0)
+        var output = ""
+        while tokenType != [] {
+            let tokenRange = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            let nsRange = NSRange(location: tokenRange.location, length: tokenRange.length)
+            let token = nsText.substring(with: nsRange)
+            let onlyNonLetterToken = token.unicodeScalars.allSatisfy {
+                CharacterSet.punctuationCharacters.contains($0) || CharacterSet.whitespacesAndNewlines.contains($0)
+            }
+            if onlyNonLetterToken {
+                output += token
+            } else if
+                let latin = CFStringTokenizerCopyCurrentTokenAttribute(tokenizer, kCFStringTokenizerAttributeLatinTranscription) as? String,
+                let hiragana = latin.applyingTransform(.latinToHiragana, reverse: false) {
+                output += hiragana
+            } else {
+                output += token
+            }
+            tokenType = CFStringTokenizerAdvanceToNextToken(tokenizer)
+        }
+
+        return output.isEmpty ? text : output
+    }
+
+    // 選択範囲再変換向けに、表示文字列から再投入用のひらがな読みを推定する。
+    // ASCII 連続区間はそのまま保持し、非 ASCII 連続区間だけ tokenizer で推定する。
+    static func estimatedHiraganaReadingForReconvert(_ text: String) -> String {
+        guard !text.isEmpty else {
+            return text
+        }
+
+        var output = ""
+        var current = ""
+        var currentIsASCII: Bool?
+
+        func flushCurrentChunk() {
+            guard !current.isEmpty, let isASCII = currentIsASCII else {
+                return
+            }
+            if isASCII {
+                output += current
+            } else {
+                output += Self.estimatedHiraganaReadingForNonASCII(current)
+            }
+            current = ""
+            currentIsASCII = nil
+        }
+
+        for scalar in text.unicodeScalars {
+            let isASCII = scalar.isASCII
+            if currentIsASCII == nil || currentIsASCII == isASCII {
+                current.unicodeScalars.append(scalar)
+                currentIsASCII = isASCII
+            } else {
+                flushCurrentChunk()
+                current.unicodeScalars.append(scalar)
+                currentIsASCII = isASCII
+            }
+        }
+        flushCurrentChunk()
+
+        return output
+    }
+
+    @MainActor
+    private func recordLastCommittedText(text: String, reading: String? = nil) {
+        guard !text.isEmpty else {
+            return
+        }
+        let normalizedReading = if let reading, !reading.isEmpty {
+            reading
+        } else {
+            text
+        }
+        self.lastCommittedEntry = .init(text: text, reading: normalizedReading)
+    }
+
+    @MainActor
+    private func reconvertCommittedText(client: IMKTextInput) -> Bool {
+        let selectedRange = client.selectedRange()
+        if selectedRange.length > 0 {
+            return self.reconvertSelectedText(client: client, selectedRange: selectedRange)
+        }
+        return self.reconvertLastCommittedText(client: client, cursorRange: selectedRange)
+    }
+
+    @MainActor
+    private func reconvertSelectedText(client: IMKTextInput, selectedRange: NSRange) -> Bool {
+        var actualRange = NSRange()
+        guard let selectedText = client.string(from: selectedRange, actualRange: &actualRange), !selectedText.isEmpty else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: failed to fetch selected text")
+            return false
+        }
+        let selectedReading = Self.estimatedHiraganaReadingForReconvert(selectedText)
+        if selectedReading != selectedText {
+            self.segmentsManager.appendDebugMessage("Reconvert selected text: estimated reading '\(selectedReading)'")
+        }
+
+        if !self.segmentsManager.isEmpty {
+            self.segmentsManager.stopComposition()
+        }
+        self.markedTextReplacementRange = selectedRange
+        self.segmentsManager.insertAtCursorPosition(selectedReading, inputStyle: self.inputStyle)
+        self.inputState = .composing
+        self.replaceSuggestionWindow.orderOut(nil)
+        return true
+    }
+
+    @MainActor
+    private func reconvertLastCommittedText(client: IMKTextInput, cursorRange: NSRange) -> Bool {
+        guard let lastCommittedEntry else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: no last committed entry")
+            return false
+        }
+        guard cursorRange.location != NSNotFound else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: cursor location is not found")
+            return false
+        }
+
+        let committedLength = (lastCommittedEntry.text as NSString).length
+        guard committedLength > 0, cursorRange.location >= committedLength else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: cursor is not after last committed text")
+            return false
+        }
+
+        let targetRange = NSRange(location: cursorRange.location - committedLength, length: committedLength)
+        var actualRange = NSRange()
+        guard let textBeforeCursor = client.string(from: targetRange, actualRange: &actualRange) else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: failed to read text before cursor")
+            return false
+        }
+        guard actualRange.location == targetRange.location, actualRange.length == targetRange.length else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: actual range mismatch")
+            return false
+        }
+        guard textBeforeCursor == lastCommittedEntry.text else {
+            self.segmentsManager.appendDebugMessage("Reconvert ignored: text before cursor does not match last commit")
+            return false
+        }
+
+        if !self.segmentsManager.isEmpty {
+            self.segmentsManager.stopComposition()
+        }
+        self.markedTextReplacementRange = targetRange
+        self.segmentsManager.insertAtCursorPosition(lastCommittedEntry.reading, inputStyle: self.inputStyle)
+        self.inputState = .composing
+        self.replaceSuggestionWindow.orderOut(nil)
+        return true
     }
 
     static func predictionSelectionIndex(
@@ -186,10 +365,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         if self.segmentsManager.isEmpty {
             return
         }
+        let reading = self.segmentsManager.convertTarget
         let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
         if let client = sender as? IMKTextInput {
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
         }
+        self.recordLastCommittedText(text: text, reading: reading)
         self.inputState = .none
         self.refreshMarkedText()
         self.refreshCandidateWindow()
@@ -285,16 +466,21 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             }
         }
 
-        // かなキー（keyCode 104）の処理（ダブルタップで日本語への翻訳）
+        // かなキー（keyCode 104）の処理
         if event.keyCode == 104 {
             let isDoubleTap = checkAndUpdateDoubleTap(keyCode: 104)
             if isDoubleTap {
+                #if AZOOKEY_ENABLE_KANA_DOUBLE_TAP_RECONVERT
+                _ = self.handleClientAction(.reconvertCommittedText, clientActionCallback: .fallthrough, client: client)
+                return true
+                #else
                 let selectedRange = client.selectedRange()
                 if selectedRange.length > 0 {
                     if self.triggerAiTranslation(initialPrompt: "japanese") {
                         return true
                     }
                 }
+                #endif
             }
         }
 
@@ -425,17 +611,23 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .editSegment(let count):
             self.segmentsManager.editSegment(count: count)
         case .commitMarkedText:
+            let reading = self.segmentsManager.convertTarget
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.recordLastCommittedText(text: text, reading: reading)
         case .commitMarkedTextAndAppendToMarkedText(let string):
+            let reading = self.segmentsManager.convertTarget
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.recordLastCommittedText(text: text, reading: reading)
             // 英語モードの場合は.directでローマ字変換せずそのまま入力
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(string, inputStyle: inputStyle)
         case .commitMarkedTextAndAppendPieceToMarkedText(let pieces):
+            let reading = self.segmentsManager.convertTarget
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.recordLastCommittedText(text: text, reading: reading)
             // 英語モードの場合は.directでローマ字変換せずそのまま入力
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
@@ -493,8 +685,10 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .selectInputLanguage(let language):
             self.switchInputLanguage(language, client: client)
         case .commitMarkedTextAndSelectInputLanguage(let language):
+            let reading = self.segmentsManager.convertTarget
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.recordLastCommittedText(text: text, reading: reading)
             self.switchInputLanguage(language, client: client)
         // PredictiveSuggestion
         case .requestPredictiveSuggestion:
@@ -522,6 +716,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .transformSelectedText(let selectedText, let prompt):
             self.segmentsManager.appendDebugMessage("Executing transformSelectedText with text: '\(selectedText)' and prompt: '\(prompt)'")
             self.transformSelectedText(selectedText: selectedText, prompt: prompt)
+        case .reconvertCommittedText:
+            _ = self.reconvertCommittedText(client: client)
         // Unicode Input (Shift+Ctrl+U)
         case .enterUnicodeInputMode:
             // 状態遷移は clientActionCallback で行われるので、ここでは何もしない
@@ -536,6 +732,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             if let scalar = UInt32(codePoint, radix: 16), let unicodeScalar = Unicode.Scalar(scalar) {
                 let character = String(Character(unicodeScalar))
                 client.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.recordLastCommittedText(text: character)
             }
         case .cancelUnicodeInput:
             // 状態遷移は clientActionCallback で行われるので、ここでは何もしない
@@ -547,6 +744,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             if !self.segmentsManager.isEmpty {
                 let text = self.segmentsManager.convertTarget
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.recordLastCommittedText(text: text, reading: text)
                 self.segmentsManager.stopComposition()
             }
         // MARK: 特殊ケース
@@ -843,10 +1041,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 )
             )
         }
+        let replacementRange = self.markedTextReplacementRange ?? NSRange(location: NSNotFound, length: 0)
+        self.markedTextReplacementRange = nil
         self.client()?.setMarkedText(
             text,
             selectionRange: currentMarkedText.selectionRange,
-            replacementRange: NSRange(location: NSNotFound, length: 0)
+            replacementRange: replacementRange
         )
     }
 
@@ -856,6 +1056,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             // インサートを行う前にコンテキストを取得する
             let cleanLeftSideContext = self.segmentsManager.getCleanLeftSideContext(maxCount: 30)
             client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.recordLastCommittedText(text: candidate.text, reading: self.reading(from: candidate))
             // アプリケーションサポートのディレクトリを準備しておく
             self.segmentsManager.prefixCandidateCommited(candidate, leftSideContext: cleanLeftSideContext ?? "")
         }
@@ -907,6 +1108,7 @@ extension azooKeyMacInputController: ReplaceSuggestionsViewControllerDelegate {
                 if let client = self.client() {
                     // 選択された候補をテキストとして挿入
                     client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                    self.recordLastCommittedText(text: candidate.text, reading: self.reading(from: candidate))
                     // サジェスト候補ウィンドウを非表示にする
                     self.replaceSuggestionWindow.setIsVisible(false)
                     self.replaceSuggestionWindow.orderOut(nil)
@@ -1037,6 +1239,7 @@ extension azooKeyMacInputController {
         if let candidate = self.replaceSuggestionsViewController.getSelectedCandidate() {
             if let client = self.client() {
                 client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.recordLastCommittedText(text: candidate.text, reading: self.reading(from: candidate))
                 self.replaceSuggestionWindow.setIsVisible(false)
                 self.replaceSuggestionWindow.orderOut(nil)
                 self.segmentsManager.stopComposition()

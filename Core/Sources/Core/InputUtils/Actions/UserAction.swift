@@ -18,6 +18,7 @@ public enum UserAction {
     case suggest
     case forget
     case transformSelectedText
+    case reconvertCommittedText
     case deadKey(String)
     case startUnicodeInput
 
@@ -180,6 +181,8 @@ public enum UserAction {
                 return .function(.ten)
             case ("s", [.control]): // Control + s
                 return .suggest
+            case ("r", [.control, .shift]): // Shift + Control + r
+                return .reconvertCommittedText
             case ("u", [.control, .shift]): // Shift + Control + u
                 return .startUnicodeInput
 

@@ -80,4 +80,32 @@ class azooKeyMacTests: XCTestCase {
         XCTAssertEqual(CandidatesViewController.showedRowsForSelection(4, pageSize: 0), 4...4)
     }
 
+    func testEstimatedHiraganaReadingForReconvertWithKanji() throws {
+        XCTAssertEqual(
+            azooKeyMacInputController.estimatedHiraganaReadingForReconvert("今日も良い天気ですね。"),
+            "きょうもよいてんきですね。"
+        )
+    }
+
+    func testEstimatedHiraganaReadingForReconvertWithASCII() throws {
+        XCTAssertEqual(
+            azooKeyMacInputController.estimatedHiraganaReadingForReconvert("ABC"),
+            "ABC"
+        )
+    }
+
+    func testEstimatedHiraganaReadingForReconvertWithMixedASCIIAndKanji() throws {
+        XCTAssertEqual(
+            azooKeyMacInputController.estimatedHiraganaReadingForReconvert("ABC今日はDEF"),
+            "ABCきょうはDEF"
+        )
+    }
+
+    func testEstimatedHiraganaReadingForReconvertWithKanjiAndASCIIPhrase() throws {
+        XCTAssertEqual(
+            azooKeyMacInputController.estimatedHiraganaReadingForReconvert("漢字とASCII punctuation!? mix"),
+            "かんじとASCII punctuation!? mix"
+        )
+    }
+
 }
