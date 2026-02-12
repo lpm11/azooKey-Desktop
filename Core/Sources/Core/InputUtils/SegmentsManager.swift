@@ -867,6 +867,35 @@ public final class SegmentsManager {
         )
     }
 
+    @MainActor
+    // Tab で予測候補を受け入れた直後、選択していた候補をライブ変換表示の先頭にする。
+    // appendText が同じ候補同士でも、ユーザーが選択した予測候補を変換中テキストとして表示するために使う。
+    public func prioritizeMainResult(text: String) {
+        guard var rawCandidates else {
+            return
+        }
+        rawCandidates.mainResults = Self.prioritizedMainResults(rawCandidates.mainResults, prioritizing: text)
+        self.rawCandidates = rawCandidates
+    }
+
+    // 指定テキストに一致する候補を先頭へ移動する純粋関数。
+    // 一致しない場合や既に先頭の場合は、元の順序をそのまま返す。
+    static func prioritizedMainResults(_ results: [Candidate], prioritizing text: String) -> [Candidate] {
+        guard !text.isEmpty else {
+            return results
+        }
+        guard let index = results.firstIndex(where: {$0.text == text}) else {
+            return results
+        }
+        guard index > 0 else {
+            return results
+        }
+        var reordered = results
+        let selected = reordered.remove(at: index)
+        reordered.insert(selected, at: 0)
+        return reordered
+    }
+
     // swiftlint:disable:next cyclomatic_complexity
     public func getCurrentMarkedText(inputState: InputState) -> MarkedText {
         switch inputState {

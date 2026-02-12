@@ -61,3 +61,26 @@ private func makePredictionSourceCandidate(text: String, ruby: String) -> Candid
 
     #expect(predictions.isEmpty)
 }
+
+@Test func prioritizedMainResultsMovesMatchedCandidateToFront() async throws {
+    let results = [
+        makePredictionSourceCandidate(text: "こんにちは", ruby: "こんにちは"),
+        makePredictionSourceCandidate(text: "こんにちわ", ruby: "こんにちわ"),
+        makePredictionSourceCandidate(text: "今日は", ruby: "こんにちは")
+    ]
+
+    let prioritized = SegmentsManager.prioritizedMainResults(results, prioritizing: "今日は")
+
+    #expect(prioritized.map(\.text) == ["今日は", "こんにちは", "こんにちわ"])
+}
+
+@Test func prioritizedMainResultsKeepsOrderWhenNoMatch() async throws {
+    let results = [
+        makePredictionSourceCandidate(text: "こんにちは", ruby: "こんにちは"),
+        makePredictionSourceCandidate(text: "こんにちわ", ruby: "こんにちわ")
+    ]
+
+    let prioritized = SegmentsManager.prioritizedMainResults(results, prioritizing: "こんばんは")
+
+    #expect(prioritized.map(\.text) == ["こんにちは", "こんにちわ"])
+}

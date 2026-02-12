@@ -801,6 +801,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
 
         self.segmentsManager.insertAtCursorPosition(appendText, inputStyle: .direct)
+        self.segmentsManager.prioritizeMainResult(text: prediction.displayText)
     }
 
     var retryCount = 0
