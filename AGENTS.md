@@ -12,3 +12,6 @@ swift ソースに変更を加えた場合は、以下を実行して lint, test
 - `swiftlint --quiet --strict`
 - `swift test --package-path Core`
   - 依存パッケージでエラーが出ている場合は、`swift package --package-path Core reset` を実行すると直る場合がある
+- `xcodebuild test -project azooKeyMac.xcodeproj -scheme azooKeyMac -destination 'platform=macOS'`
+- `./install.sh --dry-run`
+  - dry run によりビルドを実行することができる
