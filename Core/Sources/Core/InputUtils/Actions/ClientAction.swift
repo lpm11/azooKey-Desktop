@@ -24,6 +24,10 @@ public enum ClientAction {
     case submitSelectedCandidate
     case selectNextCandidate
     case selectPrevCandidate
+    case selectNextCandidatePage
+    case selectPrevCandidatePage
+    case selectFirstCandidate
+    case selectLastCandidate
     case selectNumberCandidate(Int)
 
     case selectInputLanguage(InputLanguage)

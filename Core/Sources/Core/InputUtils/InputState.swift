@@ -33,7 +33,7 @@ public enum InputState: Sendable, Hashable {
                 break
             case .navigation(let direction) where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
                 switch direction {
-                case .up, .down, .left, .right:
+                case .up, .down, .left, .right, .pageUp, .pageDown, .home, .end:
                     return (.consume, .fallthrough)
                 }
             case .escape where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
@@ -290,6 +290,14 @@ public enum InputState: Sendable, Hashable {
                     }
                 } else if direction == .left && event.modifierFlags.contains(.shift) {
                     return (.editSegment(-1), .fallthrough)
+                } else if direction == .pageDown {
+                    return (.selectNextCandidatePage, .fallthrough)
+                } else if direction == .pageUp {
+                    return (.selectPrevCandidatePage, .fallthrough)
+                } else if direction == .home {
+                    return (.selectFirstCandidate, .fallthrough)
+                } else if direction == .end {
+                    return (.selectLastCandidate, .fallthrough)
                 } else if direction == .down {
                     return (.selectNextCandidate, .fallthrough)
                 } else if direction == .up {

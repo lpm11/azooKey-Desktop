@@ -10,25 +10,54 @@ protocol CandidatesViewControllerDelegate: AnyObject {
 class CandidatesViewController: BaseCandidateViewController {
     weak var delegate: (any CandidatesViewControllerDelegate)?
     private var showedRows: ClosedRange = 0...8
+    private var alignNextSelectionToPageBoundary = false
     var showCandidateIndex = false
 
     override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
-        self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
-        super.updateCandidatePresentations(
-            candidates,
-            selectionIndex: selectionIndex,
-            cursorLocation: cursorLocation
-        )
+        if selectionIndex == nil {
+            self.showedRows = 0...8
+            self.alignNextSelectionToPageBoundary = false
+        }
+        super.updateCandidatePresentations(candidates, selectionIndex: selectionIndex, cursorLocation: cursorLocation)
+    }
+
+    static func showedRowsForSelection(_ selectionRow: Int, pageSize: Int = 9) -> ClosedRange<Int> {
+        let resolvedPageSize = max(1, pageSize)
+        let resolvedRow = max(0, selectionRow)
+        let pageStart = (resolvedRow / resolvedPageSize) * resolvedPageSize
+        return pageStart...(pageStart + resolvedPageSize - 1)
+    }
+
+    private func scrollToTop(row: Int) {
+        guard row >= 0, row < self.tableView.numberOfRows else {
+            return
+        }
+        guard let scrollView = self.tableView.enclosingScrollView else {
+            return
+        }
+        let y = self.tableView.rect(ofRow: row).minY
+        let point = NSPoint(x: 0, y: y)
+        scrollView.contentView.scroll(to: point)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    func requestAlignSelectionToPageBoundary() {
+        self.alignNextSelectionToPageBoundary = true
     }
 
     override internal func updateSelectionCallback(_ row: Int) {
+        defer { self.alignNextSelectionToPageBoundary = false }
         delegate?.candidateSelectionChanged(row)
 
         if !self.showedRows.contains(row) {
-            if row < self.showedRows.lowerBound {
-                self.showedRows = row...(row + 8)
+            let pageSize = max(1, self.numberOfVisibleRows)
+            if self.alignNextSelectionToPageBoundary {
+                self.showedRows = Self.showedRowsForSelection(row, pageSize: pageSize)
+                self.scrollToTop(row: self.showedRows.lowerBound)
+            } else if row < self.showedRows.lowerBound {
+                self.showedRows = row...(row + pageSize - 1)
             } else {
-                self.showedRows = (row - 8)...row
+                self.showedRows = (row - pageSize + 1)...row
             }
         }
     }

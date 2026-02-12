@@ -3,6 +3,19 @@ import Foundation
 import KanaKanjiConverterModule
 import Testing
 
+private let punctuationStyleTestLock = NSLock()
+
+private func inputPiecesToString(_ inputPieces: [InputPiece]) -> String {
+    String(inputPieces.compactMap {
+        switch $0 {
+        case .character(let c): c
+        case .key(intention: let cint, input: let cinp, modifiers: _): cint ?? cinp
+        case .compositionSeparator: nil
+        }
+    })
+}
+
+
 private func inputString(from action: UserAction) -> String? {
     guard case .input(let pieces) = action else {
         return nil
@@ -23,7 +36,19 @@ private func makeEvent(
     )
 }
 
-@Test func testOptionPunctuationMappings() async throws {
+private func makePhysicalKeyEvent(keyCode: UInt16) -> KeyEventCore {
+    KeyEventCore(
+        modifierFlags: [],
+        characters: nil,
+        charactersIgnoringModifiers: nil,
+        keyCode: keyCode
+    )
+}
+
+@Test func testOptionPunctuationMappings() throws {
+    punctuationStyleTestLock.lock()
+    defer { punctuationStyleTestLock.unlock() }
+
     let defaults = UserDefaults.standard
     let key = Config.PunctuationStyle.key
     let originalData = defaults.data(forKey: key)
@@ -84,7 +109,10 @@ private func makeEvent(
     )) == "˘")
 }
 
-@Test func testPreserveASCIISymbolKeysForCustomTable() async throws {
+@Test func testPreserveASCIISymbolKeysForCustomTable() throws {
+    punctuationStyleTestLock.lock()
+    defer { punctuationStyleTestLock.unlock() }
+
     let defaults = UserDefaults.standard
     let key = Config.PunctuationStyle.key
     let originalData = defaults.data(forKey: key)
@@ -123,4 +151,49 @@ private func makeEvent(
         inputLanguage: .japanese,
         preserveASCIISymbolKeys: true
     )) == "\"")
+}
+
+@Test func testPageNavigationKeyMappings() throws {
+    let pageUpAction = UserAction.getUserAction(
+        eventCore: makePhysicalKeyEvent(keyCode: 0x74),
+        inputLanguage: .japanese
+    )
+    let pageDownAction = UserAction.getUserAction(
+        eventCore: makePhysicalKeyEvent(keyCode: 0x79),
+        inputLanguage: .japanese
+    )
+
+    #expect({
+        if case .navigation(.pageUp) = pageUpAction {
+            return true
+        }
+        return false
+    }())
+    #expect({
+        if case .navigation(.pageDown) = pageDownAction {
+            return true
+        }
+        return false
+    }())
+    let homeAction = UserAction.getUserAction(
+        eventCore: makePhysicalKeyEvent(keyCode: 0x73),
+        inputLanguage: .japanese
+    )
+    let endAction = UserAction.getUserAction(
+        eventCore: makePhysicalKeyEvent(keyCode: 0x77),
+        inputLanguage: .japanese
+    )
+
+    #expect({
+        if case .navigation(.home) = homeAction {
+            return true
+        }
+        return false
+    }())
+    #expect({
+        if case .navigation(.end) = endAction {
+            return true
+        }
+        return false
+    }())
 }

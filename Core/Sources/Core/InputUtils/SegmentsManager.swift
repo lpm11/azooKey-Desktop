@@ -541,6 +541,49 @@ public final class SegmentsManager {
         self.shouldShowDebugCandidateWindow = enabled
     }
 
+    private static func pagedSelectionIndex(
+        current: Int?,
+        direction: UserAction.NavigationDirection,
+        candidateCount: Int,
+        pageSize: Int
+    ) -> Int? {
+        guard candidateCount > 0, pageSize > 0 else {
+            return nil
+        }
+
+        let pageCount = (candidateCount + pageSize - 1) / pageSize
+        let defaultIndex = switch direction {
+        case .pageDown:
+            0
+        case .pageUp:
+            max(0, (pageCount - 1) * pageSize)
+        case .up, .down, .left, .right, .home, .end:
+            current ?? 0
+        }
+        let normalizedCurrent = min(max(current ?? defaultIndex, 0), candidateCount - 1)
+        let currentPage = normalizedCurrent / pageSize
+        let offsetInPage = normalizedCurrent % pageSize
+
+        let targetPage = switch direction {
+        case .pageDown:
+            (currentPage + 1) % pageCount
+        case .pageUp:
+            (currentPage - 1 + pageCount) % pageCount
+        case .up, .down, .left, .right, .home, .end:
+            currentPage
+        }
+        let targetStart = targetPage * pageSize
+        let targetEnd = min(targetStart + pageSize - 1, candidateCount - 1)
+        return min(targetStart + offsetInPage, targetEnd)
+    }
+
+    private var selectableCandidateCount: Int {
+        if self.shouldShowDebugCandidateWindow {
+            return self.debugCandidates.count
+        }
+        return self.candidates?.count ?? 0
+    }
+
     @MainActor
     public func requestSelectingNextCandidate() {
         self.isFixingAdditionalCandidateTop = false
@@ -575,6 +618,40 @@ public final class SegmentsManager {
             return
         }
         self.selectionIndex = max(0, selectionIndex - 1)
+    }
+
+    public func requestSelectingFirstCandidate() {
+        guard self.selectableCandidateCount > 0 else {
+            self.selectionIndex = nil
+            return
+        }
+        self.selectionIndex = 0
+    }
+
+    public func requestSelectingLastCandidate() {
+        guard self.selectableCandidateCount > 0 else {
+            self.selectionIndex = nil
+            return
+        }
+        self.selectionIndex = self.selectableCandidateCount - 1
+    }
+
+    public func requestSelectingNextCandidatePage(pageSize: Int = 9) {
+        self.selectionIndex = Self.pagedSelectionIndex(
+            current: self.selectionIndex,
+            direction: .pageDown,
+            candidateCount: self.selectableCandidateCount,
+            pageSize: pageSize
+        )
+    }
+
+    public func requestSelectingPrevCandidatePage(pageSize: Int = 9) {
+        self.selectionIndex = Self.pagedSelectionIndex(
+            current: self.selectionIndex,
+            direction: .pageUp,
+            candidateCount: self.selectableCandidateCount,
+            pageSize: pageSize
+        )
     }
 
     public func requestSelectingRow(_ index: Int) {

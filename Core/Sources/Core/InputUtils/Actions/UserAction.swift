@@ -22,7 +22,7 @@ public enum UserAction {
     case startUnicodeInput
 
     public enum NavigationDirection: Sendable, Equatable, Hashable {
-        case up, down, right, left
+        case up, down, right, left, pageUp, pageDown, home, end
     }
 
     public enum Function: Sendable, Equatable, Hashable {
@@ -264,14 +264,22 @@ public enum UserAction {
             return .navigation(.down)
         case 126: // Up
             return .navigation(.up)
+        case 0x74: // Page Up
+            return .navigation(.pageUp)
+        case 0x79: // Page Down
+            return .navigation(.pageDown)
+        case 0x73: // Home
+            return .navigation(.home)
+        case 0x77: // End
+            return .navigation(.end)
         case 0x4B: // Numpad Slash
             return .input([.character("/")])
         case 0x5F: // Numpad Comma
             return .input([.character(",")])
         case 0x41: // Numpad Period
             return .input([.character(".")])
-        case 0x73, 0x77, 0x74, 0x79, 0x75, 0x47:
-            // Numpadでそれぞれ「入力先頭にカーソルを移動」「入力末尾にカーソルを移動」「変換候補欄を1ページ戻る」「変換候補欄を1ページ進む」「順方向削除」「入力全消し（より強いエスケープ）」に対応するが、サポート外の動作として明示的に無効化
+        case 0x75, 0x47:
+            // Numpadでそれぞれ「順方向削除」「入力全消し（より強いエスケープ）」に対応するが、サポート外の動作として明示的に無効化
             return .unknown
         case 18, 19, 20, 21, 23, 22, 26, 28, 25, 29:
             if !eventCore.modifierFlags.contains(.shift) && !eventCore.modifierFlags.contains(.option) {

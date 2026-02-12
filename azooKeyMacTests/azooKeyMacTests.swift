@@ -67,4 +67,17 @@ class azooKeyMacTests: XCTestCase {
         )
     }
 
+    func testCandidateShowedRowsForSelectionAlignsToPageBoundary() throws {
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(0), 0...8)
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(8), 0...8)
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(9), 9...17)
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(17), 9...17)
+    }
+
+    func testCandidateShowedRowsForSelectionRespectsPageSize() throws {
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(4, pageSize: 3), 3...5)
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(0, pageSize: 1), 0...0)
+        XCTAssertEqual(CandidatesViewController.showedRowsForSelection(4, pageSize: 0), 4...4)
+    }
+
 }

@@ -25,6 +25,10 @@
 | `Escape`                            | `.escape`                   | 変換/候補選択/Unicode入力のキャンセル、候補ウィンドウを閉じる。                                                                                                                                                              | 状態依存                                         |
 | `↑` / `Ctrl-P`                      | `.navigation(.up)`          | PredictionWindow 表示中の `composing`: **予測候補を上方向に選択**。`selecting`: 前候補へ。                                                                                                                                  | 状態依存                                         |
 | `↓` / `Ctrl-N`                      | `.navigation(.down)`        | PredictionWindow 表示中の `composing`: **予測候補を下方向に選択**。それ以外の `composing`/`previewing`: 候補選択開始。`selecting`: 次候補へ。                                                                                | 状態依存                                         |
+| `PageUp`                            | `.navigation(.pageUp)`      | `selecting`: **候補を1ページ前へ移動**（先頭ページなら末尾ページへラップ）。                                                                                                                                                 | 状態依存                                         |
+| `PageDown`                          | `.navigation(.pageDown)`    | `selecting`: **候補を1ページ次へ移動**（末尾ページなら先頭ページへラップ）。                                                                                                                                                 | 状態依存                                         |
+| `Home`                              | `.navigation(.home)`        | `selecting`: **先頭候補へ移動**。                                                                                                                                                                                             | 状態依存                                         |
+| `End`                               | `.navigation(.end)`         | `selecting`: **末尾候補へ移動**。                                                                                                                                                                                             | 状態依存                                         |
 | `→` / `Ctrl-F`                      | `.navigation(.right)`       | `selecting`: 候補確定（または文節移動）。                                                                                                                                                                                    | `Shift` 併用で文節編集                           |
 | `Shift+←` / `Shift+→`               | `.navigation(.left/.right)` | **文節編集（セグメント移動）**。                                                                                                                                                                                             | `composing`/`previewing`/`selecting`             |
 | `Ctrl-I` / `Ctrl-O`                 | `.editSegment(-1/+1)`       | **文節編集（左/右）**。                                                                                                                                                                                                      | `selecting` に遷移                               |
@@ -60,7 +64,7 @@
 
 - `Command` を含むキーは IME 側で処理せず、基本的にアプリへフォールスルーします。
 - `Option` を含むキーは、`input`/`deadKey`/`backspace` 以外は多くがフォールスルーします。
-- Numpad の一部キー（先頭/末尾移動、ページ移動、順方向削除、全消し相当）は明示的に `unknown` として無効化されています。
+- Numpad の一部キー（順方向削除、全消し相当）は明示的に `unknown` として無効化されています。
 - `英数` ダブルタップは、選択テキストがあれば英訳トリガー、変換中テキストがあれば半角英数化して英数入力へ切替します。
 - `かな` ダブルタップは、選択テキストがある場合に和訳トリガーが実装されています（いずれも `azooKeyMacInputController` 側処理）。
 
