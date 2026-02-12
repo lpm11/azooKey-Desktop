@@ -65,6 +65,7 @@ public enum ClientAction {
     // Selected Text Transform
     case showPromptInputWindow
     case transformSelectedText(String, String)  // (selectedText, prompt)
+    case reconvertCommittedText
 
     // Unicode Input (Shift+Ctrl+U)
     case enterUnicodeInputMode
