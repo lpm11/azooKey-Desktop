@@ -15,6 +15,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     var appMenu: NSMenu
     var liveConversionToggleMenuItem: NSMenuItem
     var transformSelectedTextMenuItem: NSMenuItem
+    var pseudoRestartMenuItem: NSMenuItem
 
     private var candidatesWindow: NSWindow
     private var candidatesViewController: CandidatesViewController
@@ -28,6 +29,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     private var replaceSuggestionWindow: NSWindow
     private var replaceSuggestionsViewController: ReplaceSuggestionsViewController
+    private var replaceSuggestionTask: Task<Void, Never>?
+    private var promptPreviewTask: Task<Void, Never>?
+    private var restartEpoch: UInt64 = 0
 
     var promptInputWindow: PromptInputWindow
     var isPromptWindowVisible: Bool = false
@@ -264,6 +268,10 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
     }
 
+    static func shouldApplyAsyncResult(taskEpoch: UInt64, currentEpoch: UInt64) -> Bool {
+        taskEpoch == currentEpoch
+    }
+
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
         let applicationDirectoryURL = if #available(macOS 13, *) {
             URL.applicationSupportDirectory
@@ -285,6 +293,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.appMenu = NSMenu(title: "azooKey")
         self.liveConversionToggleMenuItem = NSMenuItem()
         self.transformSelectedTextMenuItem = NSMenuItem()
+        self.pseudoRestartMenuItem = NSMenuItem()
 
         let textInputClient = inputClient as? IMKTextInput
 
@@ -319,6 +328,63 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.replaceSuggestionsViewController.delegate = self
         self.segmentsManager.delegate = self
         self.setupMenu()
+    }
+
+    func currentRestartEpoch() -> UInt64 {
+        self.restartEpoch
+    }
+
+    func shouldApplyAsyncResult(taskEpoch: UInt64) -> Bool {
+        Self.shouldApplyAsyncResult(taskEpoch: taskEpoch, currentEpoch: self.restartEpoch)
+    }
+
+    func registerPromptPreviewTask(_ task: Task<Void, Never>) {
+        self.promptPreviewTask?.cancel()
+        self.promptPreviewTask = task
+    }
+
+    func clearPromptPreviewTask() {
+        self.promptPreviewTask = nil
+    }
+
+    @MainActor
+    func performPseudoRestart() {
+        self.segmentsManager.appendDebugMessage("pseudo restart: 開始")
+        self.restartEpoch &+= 1
+
+        self.predictionHideWorkItem?.cancel()
+        self.predictionHideWorkItem = nil
+        self.replaceSuggestionTask?.cancel()
+        self.replaceSuggestionTask = nil
+        self.promptPreviewTask?.cancel()
+        self.clearPromptPreviewTask()
+
+        self.candidatesWindow.orderOut(nil)
+        self.candidatesViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+        self.candidatesViewController.hide()
+
+        self.hidePredictionWindow()
+        self.predictionViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+
+        self.replaceSuggestionWindow.orderOut(nil)
+        self.replaceSuggestionsViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+
+        self.promptInputWindow.close()
+        self.isPromptWindowVisible = false
+
+        self.segmentsManager.stopComposition()
+        self.segmentsManager.setReplaceSuggestions([])
+        self.segmentsManager.resetSuggestionSelection()
+
+        self.inputState = .none
+        self.markedTextReplacementRange = nil
+        self.retryCount = 0
+        self.lastKey = (0, 0)
+
+        self.refreshMarkedText()
+        self.refreshCandidateWindow()
+        self.refreshPredictionWindow()
+        self.segmentsManager.appendDebugMessage("pseudo restart: 完了")
     }
 
     @MainActor
@@ -1125,9 +1191,11 @@ extension azooKeyMacInputController {
     // MARK: - Replace Suggestion Request Handling
     @MainActor func requestReplaceSuggestion() {
         self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: 開始")
+        let requestEpoch = self.restartEpoch
 
         // リクエスト開始時に前回の候補をクリアし、ウィンドウを非表示にする
         self.segmentsManager.setReplaceSuggestions([])
+        self.segmentsManager.resetSuggestionSelection()
         self.replaceSuggestionWindow.setIsVisible(false)
         self.replaceSuggestionWindow.orderOut(nil)
 
@@ -1166,8 +1234,29 @@ extension azooKeyMacInputController {
         }
         self.segmentsManager.appendDebugMessage("Using backend: \(backend.rawValue)")
 
-        // 非同期タスクでリクエストを送信
-        Task {
+        self.startReplaceSuggestionTask(
+            request: request,
+            backend: backend,
+            apiKey: apiKey,
+            composingText: composingText,
+            requestEpoch: requestEpoch
+        )
+        self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: 終了")
+    }
+
+    @MainActor
+    private func startReplaceSuggestionTask(
+        request: OpenAIRequest,
+        backend: AIBackend,
+        apiKey: String,
+        composingText: String,
+        requestEpoch: UInt64
+    ) {
+        self.replaceSuggestionTask?.cancel()
+        self.replaceSuggestionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
             do {
                 self.segmentsManager.appendDebugMessage("APIリクエスト送信中...")
                 let predictions = try await AIClient.sendRequest(
@@ -1180,8 +1269,10 @@ extension azooKeyMacInputController {
                     }
                 )
                 self.segmentsManager.appendDebugMessage("APIレスポンス受信成功: \(predictions)")
+                guard !Task.isCancelled else {
+                    return
+                }
 
-                // String配列からCandidate配列に変換
                 let candidates = predictions.map { text in
                     Candidate(
                         text: text,
@@ -1196,8 +1287,11 @@ extension azooKeyMacInputController {
 
                 self.segmentsManager.appendDebugMessage("候補変換成功: \(candidates.map { $0.text })")
 
-                // 候補をウィンドウに更新
                 await MainActor.run {
+                    guard self.shouldApplyAsyncResult(taskEpoch: requestEpoch) else {
+                        self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: stale result ignored (epoch mismatch)")
+                        return
+                    }
                     self.segmentsManager.appendDebugMessage("候補ウィンドウ更新中...")
                     if !candidates.isEmpty {
                         self.segmentsManager.setReplaceSuggestions(candidates)
@@ -1211,12 +1305,21 @@ extension azooKeyMacInputController {
                         self.segmentsManager.appendDebugMessage("候補ウィンドウ更新完了")
                     }
                 }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: cancelled")
+                }
             } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
                 let errorMessage = "APIリクエストエラー: \(error.localizedDescription)"
                 self.segmentsManager.appendDebugMessage(errorMessage)
-
-                // ユーザーに通知
                 await MainActor.run {
+                    guard self.shouldApplyAsyncResult(taskEpoch: requestEpoch) else {
+                        self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: stale error ignored (epoch mismatch)")
+                        return
+                    }
                     let alert = NSAlert()
                     alert.messageText = "変換に失敗しました"
                     alert.informativeText = error.localizedDescription
@@ -1226,7 +1329,6 @@ extension azooKeyMacInputController {
                 }
             }
         }
-        self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: 終了")
     }
 
     // MARK: - Window Management

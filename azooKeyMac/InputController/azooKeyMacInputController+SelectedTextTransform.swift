@@ -119,25 +119,12 @@ extension azooKeyMacInputController {
                     return
                 }
                 self.segmentsManager.appendDebugMessage("showPromptInputWindow: Preview requested for prompt: '\(prompt)'")
-
-                Task {
-                    do {
-                        // Check if context should be included
-                        let includeContext = Config.IncludeContextInAITransform().value
-                        let result = try await self.getTransformationPreview(
-                            selectedText: selectedText,
-                            prompt: prompt,
-                            beforeContext: includeContext ? context.before : "",
-                            afterContext: includeContext ? context.after : ""
-                        )
-                        callback(result)
-                    } catch {
-                        await MainActor.run {
-                            self.segmentsManager.appendDebugMessage("showPromptInputWindow: Preview error: \(error)")
-                        }
-                        callback("Error: \(error.localizedDescription)")
-                    }
-                }
+                self.startPromptPreviewTask(
+                    prompt: prompt,
+                    selectedText: selectedText,
+                    context: context,
+                    callback: callback
+                )
             },
             onApply: { [weak self] transformedText in
                 guard let self = self else {
@@ -174,6 +161,58 @@ extension azooKeyMacInputController {
         )
     }
 
+    private func startPromptPreviewTask(
+        prompt: String,
+        selectedText: String,
+        context: TextContext,
+        callback: @escaping (String) -> Void
+    ) {
+        let previewEpoch = self.currentRestartEpoch()
+        let previewTask = Task { [weak self] in
+            guard let self = self else {
+                return
+            }
+            do {
+                let includeContext = Config.IncludeContextInAITransform().value
+                let result = try await self.getTransformationPreview(
+                    selectedText: selectedText,
+                    prompt: prompt,
+                    beforeContext: includeContext ? context.before : "",
+                    afterContext: includeContext ? context.after : ""
+                )
+                guard !Task.isCancelled else {
+                    return
+                }
+                let shouldApply = await MainActor.run {
+                    self.shouldApplyAsyncResult(taskEpoch: previewEpoch)
+                }
+                guard shouldApply else {
+                    return
+                }
+                callback(result)
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.segmentsManager.appendDebugMessage("showPromptInputWindow: Preview task cancelled")
+                }
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                let shouldApply = await MainActor.run {
+                    self.shouldApplyAsyncResult(taskEpoch: previewEpoch)
+                }
+                guard shouldApply else {
+                    return
+                }
+                await MainActor.run {
+                    self.segmentsManager.appendDebugMessage("showPromptInputWindow: Preview error: \(error)")
+                }
+                callback("Error: \(error.localizedDescription)")
+            }
+        }
+        self.registerPromptPreviewTask(previewTask)
+    }
+
     @MainActor
     func triggerAiTranslation(initialPrompt: String) -> Bool {
         let aiBackendEnabled = Config.AIBackendPreference().value != .off
@@ -185,7 +224,7 @@ extension azooKeyMacInputController {
             self.segmentsManager.appendDebugMessage("AI translation ignored: prompt window already visible")
             return true
         }
-        guard let client = self.client() else {
+        guard self.client() != nil else {
             self.segmentsManager.appendDebugMessage("AI translation ignored: No client available")
             return false
         }
