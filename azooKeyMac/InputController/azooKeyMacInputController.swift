@@ -189,14 +189,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         if selectedReading != selectedText {
             self.segmentsManager.appendDebugMessage("Reconvert selected text: estimated reading '\(selectedReading)'")
         }
-
-        if !self.segmentsManager.isEmpty {
-            self.segmentsManager.stopComposition()
-        }
-        self.markedTextReplacementRange = selectedRange
-        self.segmentsManager.insertAtCursorPosition(selectedReading, inputStyle: self.inputStyle)
-        self.inputState = .composing
-        self.replaceSuggestionWindow.orderOut(nil)
+        self.startReconvertComposition(reading: selectedReading, replacementRange: selectedRange)
         return true
     }
 
@@ -231,15 +224,21 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.segmentsManager.appendDebugMessage("Reconvert ignored: text before cursor does not match last commit")
             return false
         }
+        self.startReconvertComposition(reading: lastCommittedEntry.reading, replacementRange: targetRange)
+        return true
+    }
 
+    @MainActor
+    private func startReconvertComposition(reading: String, replacementRange: NSRange) {
         if !self.segmentsManager.isEmpty {
             self.segmentsManager.stopComposition()
         }
-        self.markedTextReplacementRange = targetRange
-        self.segmentsManager.insertAtCursorPosition(lastCommittedEntry.reading, inputStyle: self.inputStyle)
-        self.inputState = .composing
+        self.markedTextReplacementRange = replacementRange
+        self.segmentsManager.insertAtCursorPosition(reading, inputStyle: self.inputStyle)
+        self.segmentsManager.requestSetCandidateWindowState(visible: true)
+        self.segmentsManager.update(requestRichCandidates: true)
+        self.inputState = .selecting
         self.replaceSuggestionWindow.orderOut(nil)
-        return true
     }
 
     static func predictionSelectionIndex(
