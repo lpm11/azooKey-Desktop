@@ -15,8 +15,15 @@ extension azooKeyMacInputController {
         self.appMenu.addItem(self.transformSelectedTextMenuItem)
         self.appMenu.addItem(NSMenuItem.separator())
         self.appMenu.addItem(NSMenuItem(title: "設定…", action: #selector(self.openConfigWindow(_:)), keyEquivalent: ""))
+        self.pseudoRestartMenuItem = NSMenuItem(title: "(デバッグ用) 擬似再起動", action: #selector(self.performPseudoRestartMenuAction(_:)), keyEquivalent: "")
+        self.pseudoRestartMenuItem.target = self
+        self.appMenu.addItem(self.pseudoRestartMenuItem)
         self.appMenu.addItem(NSMenuItem(title: "View on GitHub…", action: #selector(self.openGitHubRepository(_:)), keyEquivalent: ""))
         self.updateTransformSelectedTextMenuItemEnabledState()
+    }
+
+    @MainActor @objc func performPseudoRestartMenuAction(_ sender: Any) {
+        self.performPseudoRestart()
     }
 
     @objc func toggleLiveConversion(_ sender: Any) {

@@ -108,4 +108,22 @@ class azooKeyMacTests: XCTestCase {
         )
     }
 
+    func testShouldApplyAsyncResultWhenEpochMatches() throws {
+        XCTAssertTrue(
+            azooKeyMacInputController.shouldApplyAsyncResult(
+                taskEpoch: 10,
+                currentEpoch: 10
+            )
+        )
+    }
+
+    func testShouldApplyAsyncResultWhenEpochDiffers() throws {
+        XCTAssertFalse(
+            azooKeyMacInputController.shouldApplyAsyncResult(
+                taskEpoch: 10,
+                currentEpoch: 11
+            )
+        )
+    }
+
 }
