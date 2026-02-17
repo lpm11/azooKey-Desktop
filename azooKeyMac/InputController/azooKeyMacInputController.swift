@@ -574,6 +574,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         if self.handlePredictionCandidateSelectionIfNeeded(userAction) {
             return true
         }
+        let effectiveUserAction: UserAction
+        if self.shouldAcceptPredictionCandidateOnEnter(userAction) {
+            effectiveUserAction = .tab
+        } else {
+            effectiveUserAction = userAction
+        }
 
         // 英数キー（keyCode 102）の処理
         if event.keyCode == 102 {
@@ -616,7 +622,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         let aiBackendEnabled = Config.AIBackendPreference().value != .off
 
         // Handle suggest action with selected text check (prevent recursive calls)
-        if case .suggest = userAction {
+        if case .suggest = effectiveUserAction {
             // If AI backend is off, ignore the suggest action
             if !aiBackendEnabled {
                 self.segmentsManager.appendDebugMessage("Suggest action ignored: AI backend is off")
@@ -642,7 +648,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
         let (clientAction, clientActionCallback) = inputState.event(
             eventCore: event.keyEventCore,
-            userAction: userAction,
+            userAction: effectiveUserAction,
             inputLanguage: self.inputLanguage,
             liveConversionEnabled: Config.LiveConversion().value,
             enableDebugWindow: Config.DebugWindow().value,
@@ -679,6 +685,23 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.predictionHideWorkItem?.cancel()
         self.predictionHideWorkItem = nil
         self.refreshPredictionWindow()
+        return true
+    }
+
+    @MainActor
+    private func shouldAcceptPredictionCandidateOnEnter(_ userAction: UserAction) -> Bool {
+        guard self.inputState == .composing else {
+            return false
+        }
+        guard self.predictionWindow.isVisible else {
+            return false
+        }
+        guard self.predictionSelectionIndex != nil else {
+            return false
+        }
+        guard case .enter = userAction else {
+            return false
+        }
         return true
     }
 
